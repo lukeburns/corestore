@@ -35,6 +35,34 @@ const core2 = store1.get({ key: Buffer(...) })
 ```
 All hypercores are indexed by their discovery keys, so that they can be dynamically injected into replication streams when requested.
 
+Deterministic public [channels](https://github.com/lukeburns/hypercore-channels/blob/main/example.js) can be created by channel name and key.
+```js
+const alice = new Corestore(ram)
+const bob = new Corestore(ram)
+const myCats = alice.writable({
+  channel: 'cats'
+})
+const alicesCats = bob.readable({
+  key: alice.key,
+  channel: 'cats'
+})
+```
+
+Deterministic private [channels](https://github.com/lukeburns/hypercore-channels/blob/main/example.js) can be created similiarly.
+```js
+const alice = new Corestore(ram)
+const bob = new Corestore(ram)
+const lettersToBob = alice.writable({
+  channel: 'love letters',
+  key: bob.key
+})
+const lettersFromAlice = bob.readable({
+  key: alice.key,
+  channel: 'love letters',
+  private: true
+})
+```
+
 Two corestores can be replicated with the `replicate` function, which accepts hypercore's `replicate` options:
 ```js
 const store1 = new Corestore(ram)

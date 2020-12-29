@@ -1,6 +1,7 @@
 const HypercoreProtocol = require('hypercore-protocol')
 const Nanoresource = require('nanoresource/emitter')
 const hypercore = require('hypercore')
+const { crypto, readable, writable } = require('hypercore-channels')
 const hypercoreCrypto = require('hypercore-crypto')
 const datEncoding = require('dat-encoding')
 const maybe = require('call-me-maybe')
@@ -231,7 +232,8 @@ class InnerCorestore extends Nanoresource {
       ...this.opts,
       ...coreOpts,
       cache: cacheOpts,
-      createIfMissing: !!publicKey
+      createIfMissing: !!publicKey,
+      crypto
     })
 
     this.cache.set(id, core)
@@ -340,7 +342,8 @@ class Corestore extends Nanoresource {
     return maybe(cb, new Promise((resolve, reject) => {
       this.open(err => {
         if (err) return reject(err)
-        return resolve()
+        const core = this.default()
+        return core.on('ready', () => resolve())
       })
     }))
   }
@@ -378,9 +381,40 @@ class Corestore extends Nanoresource {
     return core
   }
 
+  readable (opts = {}) {
+    if (Buffer.isBuffer(opts)) return this.get(opts)
+    if (opts.private && !opts.secretKey) {
+      opts.secretKey = this.secretKey
+    }
+    const { key } = readable(opts.channel, opts.key || opts.publicKey, opts.secretKey)
+    const coreOpts = { ...opts, key }
+    const core = this.inner.get(coreOpts)
+    this._maybeIncrement(core)
+    return core
+  }
+
+  writable (opts = {}) {
+    if (Buffer.isBuffer(opts)) opts = { channel: opts }
+    if (!opts.secretKey) {
+      opts.secretKey = this.secretKey
+    }
+    const { secretKey, key } = writable(opts.channel, opts.secretKey, opts.key || opts.publicKey)
+    const coreOpts = { ...opts, secretKey, key }
+    const core = this.inner.get(coreOpts)
+    this._maybeIncrement(core)
+    return core
+  }
+
   default (coreOpts = {}) {
     if (Buffer.isBuffer(coreOpts)) coreOpts = { key: coreOpts }
-    return this.get({ ...coreOpts, name: this.name })
+    const core = this.get({ ...coreOpts, name: this.name })
+    const self = this
+    core.on('ready', function () {
+      self.secretKey = core.secretKey
+      self.key = core.key
+      self.discoveryKey = core.discoveryKey
+    })
+    return core
   }
 
   namespace (name) {
