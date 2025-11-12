@@ -337,15 +337,16 @@ class Corestore extends ReadyResource {
     if (session.sessions.length === 0) this.sessions.gc(session.id)
   }
 
+  // do not store if manually passed
   async _getOrSetSeed() {
     const seed = await this.storage.getSeed()
     if (seed !== null) return seed
-    const seedKey = this.primaryKey
-      ? this.primaryKey.length === 64
-        ? this.primaryKey.slice(0, 32)
-        : this.primaryKey
-      : crypto.keyPair().secretKey.slice(0, 32)
-    return await this.storage.setSeed(seedKey)
+    if (this.primaryKey) {
+      return this.primaryKey.slice(0, 32)
+    } else {
+      const seedKey = crypto.keyPair().secretKey.slice(0, 32)
+      return await this.storage.setSeed(seedKey)
+    }
   }
 
   async _open() {
@@ -360,14 +361,6 @@ class Corestore extends ReadyResource {
     if (this.primaryKey === null) {
       this.primaryKey = storedSeed
       return
-    }
-
-    // Compare seeds: if primaryKey is 64 bytes, compare first 32 bytes only
-    const primaryKeySeed =
-      this.primaryKey.length === 64 ? this.primaryKey.slice(0, 32) : this.primaryKey
-
-    if (!b4a.equals(storedSeed, primaryKeySeed)) {
-      throw new Error('Another corestore is stored here')
     }
   }
 
