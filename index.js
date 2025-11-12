@@ -244,7 +244,7 @@ class Corestore extends ReadyResource {
     this.readOnly = opts.writable === false || !!opts.readOnly
     this.globalCache = this.root ? this.root.globalCache : opts.globalCache || null
     this.primaryKey = this.root ? this.root.primaryKey : opts.primaryKey || null
-    this.ns = opts.namespace || DEFAULT_NAMESPACE
+    this.ns = DEFAULT_NAMESPACE
     this.manifestVersion = opts.manifestVersion || 1
     this.shouldSuspend = isAndroid ? !!opts.suspend : opts.suspend !== false
     this.active = opts.active !== false
@@ -321,7 +321,7 @@ class Corestore extends ReadyResource {
   namespace(name, opts) {
     return this.session({
       ...opts,
-      namespace: generateNamespace(this.ns, name)
+      namespace: deriveBytes(name)
     })
   }
 
@@ -340,7 +340,12 @@ class Corestore extends ReadyResource {
   async _getOrSetSeed() {
     const seed = await this.storage.getSeed()
     if (seed !== null) return seed
-    return await this.storage.setSeed(this.primaryKey || crypto.randomBytes(32))
+    const seedKey = this.primaryKey
+      ? this.primaryKey.length === 64
+        ? this.primaryKey.slice(0, 32)
+        : this.primaryKey
+      : crypto.keyPair().secretKey.slice(0, 32)
+    return await this.storage.setSeed(seedKey)
   }
 
   async _open() {
@@ -350,14 +355,18 @@ class Corestore extends ReadyResource {
       return
     }
 
-    const primaryKey = await this._getOrSetSeed()
+    const storedSeed = await this._getOrSetSeed()
 
     if (this.primaryKey === null) {
-      this.primaryKey = primaryKey
+      this.primaryKey = storedSeed
       return
     }
 
-    if (!b4a.equals(primaryKey, this.primaryKey)) {
+    // Compare seeds: if primaryKey is 64 bytes, compare first 32 bytes only
+    const primaryKeySeed =
+      this.primaryKey.length === 64 ? this.primaryKey.slice(0, 32) : this.primaryKey
+
+    if (!b4a.equals(storedSeed, primaryKeySeed)) {
       throw new Error('Another corestore is stored here')
     }
   }
@@ -505,9 +514,14 @@ class Corestore extends ReadyResource {
     return session
   }
 
-  async createKeyPair(name, ns = this.ns) {
+  async createKeyPair(...args) {
     if (this.opened === false) await this.ready()
-    return createKeyPair(this.primaryKey, ns, name)
+    return createKeyPair(this.primaryKey, ...args)
+  }
+
+  async deriveSharedSecret(publicKey) {
+    if (this.opened === false) await this.ready()
+    return crypto.deriveSharedSecret(this.primaryKey, publicKey)
   }
 
   async _preloadCheckIfExists(opts) {
@@ -546,9 +560,11 @@ class Corestore extends ReadyResource {
     }
 
     if (opts.name) {
-      result.keyPair = createKeyPair(this.primaryKey, this.ns, opts.name)
+      result.keyPair = createKeyPair(this.primaryKey, opts.name)
     } else if (opts.keyPair) {
       result.keyPair = opts.keyPair
+    } else if (opts.publicKey) {
+      result.keyPair = { publicKey: b4a.isBuffer(opts.publicKey) ? opts.publicKey : b4a.from(opts.publicKey) }
     }
 
     if (opts.manifest) {
@@ -560,8 +576,11 @@ class Corestore extends ReadyResource {
       }
     }
 
-    if (opts.key) result.key = ID.decode(opts.key)
-    else if (result.manifest) result.key = Hypercore.key(result.manifest)
+    if (opts.key) {
+      result.key = ID.decode(opts.key)
+    } else if (result.manifest) {
+      result.key = Hypercore.key(result.manifest)
+    }
 
     if (result.discoveryKey) return result
 
@@ -611,35 +630,27 @@ class Corestore extends ReadyResource {
   }
 }
 
+Corestore.derivePublicKey = derivePublicKey
+
 module.exports = Corestore
 
 function isStream(s) {
   return typeof s === 'object' && s && typeof s.pipe === 'function'
 }
 
-function generateNamespace(namespace, name) {
-  if (!b4a.isBuffer(name)) name = b4a.from(name)
-  const out = b4a.allocUnsafeSlow(32)
-  sodium.crypto_generichash_batch(out, [namespace, name])
-  return out
-}
-
-function deriveSeed(primaryKey, namespace, name) {
-  if (!b4a.isBuffer(name)) name = b4a.from(name)
+function deriveBytes(...args) {
+  args = args.map((arg) => (b4a.isBuffer(arg) ? arg : b4a.from(arg)))
   const out = b4a.alloc(32)
-  sodium.crypto_generichash_batch(out, [NS, namespace, name], primaryKey)
+  sodium.crypto_generichash_batch(out, args)
   return out
 }
 
-function createKeyPair(primaryKey, namespace, name) {
-  const seed = deriveSeed(primaryKey, namespace, name)
-  const buf = b4a.alloc(sodium.crypto_sign_PUBLICKEYBYTES + sodium.crypto_sign_SECRETKEYBYTES)
-  const keyPair = {
-    publicKey: buf.subarray(0, sodium.crypto_sign_PUBLICKEYBYTES),
-    secretKey: buf.subarray(sodium.crypto_sign_PUBLICKEYBYTES)
-  }
-  sodium.crypto_sign_seed_keypair(keyPair.publicKey, keyPair.secretKey, seed)
-  return keyPair
+function createKeyPair(primaryKey, ...args) {
+  return crypto.deriveKeyPair(primaryKey, deriveBytes(...args))
+}
+
+function derivePublicKey(publicKey, ...args) {
+  return crypto.derivePublicKey(publicKey, deriveBytes(...args))
 }
 
 function noop() {}

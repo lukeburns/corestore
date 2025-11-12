@@ -1,4 +1,4 @@
-# Corestore
+# Corestored
 
 ### [See the full API docs at docs.holepunch.to](https://docs.holepunch.to/helpers/corestore)
 
@@ -6,10 +6,9 @@ Corestore is a Hypercore factory that makes it easier to manage large collection
 
 Corestore provides:
 
-1. **Key Derivation** - All writable Hypercore keys are derived from a single master key and a user-provided name.
+1. **Hierarchical Key Derivation** - All writable Hypercore keys are derived from a single master key and a user-provided name.
 2. **Session Handling** - If a single Hypercore is loaded multiple times through the `get` method, the underlying resources will only be opened once (using Hypercore 10's new session feature). Once all sessions are closed, the resources will be released.
 3. **Storage Management** - Hypercores can be stored in any `hypercore-storage` instance, where they will be keyed by their discovery keys.
-4. **Namespacing** - You can share a single Corestore instance between multiple applications or components without worrying about naming collisions by creating "namespaces" (e.g. `corestore.namespace('my-app').get({ name: 'main' })`)
 
 ### Installation
 

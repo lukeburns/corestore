@@ -1,21 +1,26 @@
-import Corestore from './index.js'
+import Channelstore from './index.js'
+import crypto from 'hypercore-crypto'
 
-const store = new Corestore('./store.db')
+const { publicKey: aliceKey, secretKey: alicePrimaryKey } = crypto.keyPair()
+const { publicKey: bobKey, secretKey: bobPrimaryKey } = crypto.keyPair()
 
-const core = store.get({ name: 'yo' })
-// await core.close()
-
-const store2 = new Corestore('./store2.db')
-
+const alice = new Channelstore('./alice.db', { primaryKey: alicePrimaryKey })
+const aliceSharedSecret = await alice.deriveSharedSecret(bobKey)
+const aliceToBob = await alice.createKeyPair(aliceSharedSecret)
+const core = alice.get({ keyPair: aliceToBob })
 await core.ready()
-await core.append('yo')
+core.append('hi bob!')
 
-const clone = store2.get({ key: core.key })
-
-const stream = store.replicate(true)
-const stream2 = store2.replicate(false)
-
-stream.pipe(stream2).pipe(stream)
-
+const bob = new Channelstore('./bob.db', { primaryKey: bobPrimaryKey })
+const bobSharedSecret = await bob.deriveSharedSecret(aliceKey)
+const bobFromAlice = Channelstore.derivePublicKey(aliceKey, bobSharedSecret)
+const clone = bob.get({ publicKey: bobFromAlice })
 await clone.ready()
-console.log(core, clone)
+
+const a = alice.replicate(true)
+const b = bob.replicate(false)
+a.pipe(b).pipe(a)
+
+clone.on('append', async () => {
+    console.log((await clone.get(0)).toString())
+})
